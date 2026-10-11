@@ -1,0 +1,31 @@
+session_name: planstride
+start_directory: ./
+windows:
+  - window_name: planstride
+    start_directory: ./
+    panes:
+      - blank
+  - window_name: api
+    layout: even-vertical
+    start_directory: ./api
+    panes:
+      - make run
+      - blank
+  - window_name: site
+    layout: even-vertical
+    start_directory: ./site
+    panes:
+      - make run
+      - blank
+  - window_name: app
+    layout: even-vertical
+    start_directory: ./app
+    panes:
+      - make run
+      - blank
+  - window_name: internal
+    layout: even-vertical
+    start_directory: ./internal
+    panes:
+      - make run
+      - blank
