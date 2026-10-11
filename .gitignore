@@ -1,0 +1,12 @@
+# Each package keeps its own .gitignore (api/, app/, internal/, site/).
+# These cover the repo root.
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Build caches some tools drop at the root
+.vite/
+
+# The submission archive is built from git, never committed into it
+assessment.zip
