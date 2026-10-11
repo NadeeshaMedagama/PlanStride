@@ -1,0 +1,180 @@
+name: Deploy Production
+
+# Deploys a release tag to Vercel: database migrations first, then the API, then
+# the app, the internal console and the landing page. release.yaml calls this
+# after each stable release; run it by hand to redeploy a version or to roll
+# back to an earlier one. The job runs in the `production` environment, so its
+# required reviewers approve every deploy. Setup: docs/DEPLOYMENT.md.
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: Release tag to deploy, e.g. v1.2.3
+        type: string
+        required: true
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release tag to deploy or roll back to, e.g. v1.2.3
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy ${{ inputs.version }} to Vercel
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment:
+      name: production
+      url: ${{ vars.PRODUCTION_APP_URL }}
+    env:
+      VERSION: ${{ inputs.version }}
+      VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+    steps:
+      - name: Check the settings
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+          PROJECT_API: ${{ vars.VERCEL_PROJECT_ID_API }}
+          PROJECT_APP: ${{ vars.VERCEL_PROJECT_ID_APP }}
+          PROJECT_INTERNAL: ${{ vars.VERCEL_PROJECT_ID_INTERNAL }}
+          PROJECT_SITE: ${{ vars.VERCEL_PROJECT_ID_SITE }}
+        run: |
+          missing=()
+          [ -n "$VERCEL_TOKEN" ] || missing+=("the VERCEL_TOKEN secret")
+          [ -n "$DATABASE_URL" ] || missing+=("the PRODUCTION_DATABASE_URL secret")
+          [ -n "$VERCEL_ORG_ID" ] || missing+=("the VERCEL_ORG_ID variable")
+          [ -n "$PROJECT_API" ] || missing+=("the VERCEL_PROJECT_ID_API variable")
+          [ -n "$PROJECT_APP" ] || missing+=("the VERCEL_PROJECT_ID_APP variable")
+          [ -n "$PROJECT_INTERNAL" ] || missing+=("the VERCEL_PROJECT_ID_INTERNAL variable")
+          [ -n "$PROJECT_SITE" ] || missing+=("the VERCEL_PROJECT_ID_SITE variable")
+          for item in "${missing[@]}"; do
+            echo "::error::Set $item (docs/DEPLOYMENT.md)."
+          done
+          if ! [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::\"$VERSION\" isn't a release tag like v1.2.3."
+            missing+=("a valid version")
+          fi
+          [ ${#missing[@]} -eq 0 ]
+
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.version }}
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.3.0
+        with:
+          python-version: "3.12"
+
+      - name: Run database migrations
+        working-directory: api
+        env:
+          SQLALCHEMY_DATABASE_URI: ${{ secrets.PRODUCTION_DATABASE_URL }}
+          # Settings validation requires a secret key; migrations never use it.
+          SECRET_KEY: migrations-only-not-the-app-secret
+          ENVIRONMENT: production
+        run: |
+          uv sync --frozen --no-dev
+          # Rolling back: the database is already on a migration this older
+          # release doesn't know, so leave the schema as it is.
+          if ! current=$(uv run --frozen --no-dev alembic current 2>&1); then
+            if grep -q "Can't locate revision" <<< "$current"; then
+              echo "::warning::The database is on a newer migration than $VERSION; skipping migrations."
+              exit 0
+            fi
+            echo "$current"
+            exit 1
+          fi
+          uv run --frozen --no-dev alembic upgrade head
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: app/.nvmrc
+          cache: npm
+          cache-dependency-path: |
+            app/package-lock.json
+            internal/package-lock.json
+            site/package-lock.json
+
+      - name: Install the Vercel CLI
+        run: npm install --global vercel@63
+
+      # Each Vercel project's Root Directory is its folder (api, app, internal,
+      # site), so the CLI runs from the repository root, as Vercel requires for
+      # monorepos. --prebuilt uploads what was built here instead of rebuilding.
+      - name: Deploy the API
+        env:
+          VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID_API }}
+        run: |
+          # The Python the tests and the Docker image run on.
+          echo "3.12" > api/.python-version
+          vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
+          vercel build --prod --token="$VERCEL_TOKEN"
+          vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN"
+
+      - name: Check the API
+        if: vars.PRODUCTION_API_URL != ''
+        env:
+          API_URL: ${{ vars.PRODUCTION_API_URL }}
+        run: curl --silent --show-error --fail --retry 6 --retry-delay 5 --retry-all-errors "$API_URL/app/health"
+
+      - name: Deploy the app
+        env:
+          VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID_APP }}
+        run: |
+          vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
+          vercel build --prod --token="$VERCEL_TOKEN"
+          vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN"
+
+      - name: Deploy the internal console
+        env:
+          VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID_INTERNAL }}
+        run: |
+          vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
+          vercel build --prod --token="$VERCEL_TOKEN"
+          vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN"
+
+      - name: Deploy the landing page
+        env:
+          VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID_SITE }}
+        run: |
+          vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
+          vercel build --prod --token="$VERCEL_TOKEN"
+          vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN"
+
+      - name: Check the front ends
+        env:
+          URLS: ${{ vars.PRODUCTION_SITE_URL }} ${{ vars.PRODUCTION_APP_URL }} ${{ vars.PRODUCTION_INTERNAL_URL }}
+        run: |
+          for url in $URLS; do
+            curl --silent --show-error --fail --retry 3 --retry-delay 5 --output /dev/null "$url"
+            echo "$url is up"
+          done
+
+      - name: Summary
+        env:
+          SITE_URL: ${{ vars.PRODUCTION_SITE_URL }}
+          APP_URL: ${{ vars.PRODUCTION_APP_URL }}
+          INTERNAL_URL: ${{ vars.PRODUCTION_INTERNAL_URL }}
+          API_URL: ${{ vars.PRODUCTION_API_URL }}
+        run: |
+          {
+            echo "### Deployed $VERSION to production"
+            echo
+            echo "| Project | URL |"
+            echo "| --- | --- |"
+            echo "| Landing page | ${SITE_URL:-not set} |"
+            echo "| App | ${APP_URL:-not set} |"
+            echo "| Internal console | ${INTERNAL_URL:-not set} |"
+            echo "| API | ${API_URL:-not set} |"
+          } >> "$GITHUB_STEP_SUMMARY"
