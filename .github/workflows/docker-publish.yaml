@@ -1,0 +1,144 @@
+name: Publish Images to Docker Hub
+
+# Builds the four images for linux/amd64 and linux/arm64 and pushes them to
+# docker.io/<namespace>/planstride-{api,app,internal,site}:
+#   called by ci-cd.yaml on main -> `edge` and `sha-<commit>`
+#   called by release.yaml       -> `1.2.3`, `1.2`, `1`, `latest` and `sha-<commit>`
+#   run by hand                  -> the branch or tag you pick, with an optional version
+# Needs the DOCKERHUB_USERNAME variable and the DOCKERHUB_TOKEN secret;
+# DOCKERHUB_NAMESPACE overrides the namespace (docs/DEPLOYMENT.md).
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: Release version without the "v", e.g. 1.2.3. Empty publishes `edge`.
+        type: string
+        default: ""
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release version without the "v", e.g. 1.2.3. Leave empty to publish `edge`.
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docker-publish-${{ inputs.version || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish ${{ matrix.image }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: api
+            title: PlanStride API
+            build-args: ""
+          - image: app
+            title: PlanStride app
+            build-args: VITE_API_URL=${{ vars.PRODUCTION_API_URL }}
+          - image: internal
+            title: PlanStride internal console
+            build-args: VITE_API_URL=${{ vars.PRODUCTION_API_URL }}
+          - image: site
+            title: PlanStride landing page
+            build-args: |
+              VITE_SITE_URL=${{ vars.PRODUCTION_SITE_URL }}
+              VITE_APP_URL=${{ vars.PRODUCTION_APP_URL }}
+    env:
+      IMAGE: ${{ matrix.image }}
+      NAMESPACE: ${{ vars.DOCKERHUB_NAMESPACE || vars.DOCKERHUB_USERNAME }}
+      VERSION: ${{ inputs.version }}
+    steps:
+      - name: Check the Docker Hub settings
+        env:
+          DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          ok=true
+          if [ -z "$DOCKERHUB_USERNAME" ]; then
+            echo "::error::Set the DOCKERHUB_USERNAME repository variable (docs/DEPLOYMENT.md)."
+            ok=false
+          fi
+          if [ -z "$DOCKERHUB_TOKEN" ]; then
+            echo "::error::Set the DOCKERHUB_TOKEN repository secret (docs/DEPLOYMENT.md)."
+            ok=false
+          fi
+          if [ -n "$VERSION" ] && ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::\"$VERSION\" isn't a version like 1.2.3."
+            ok=false
+          fi
+          [ "$ok" = true ]
+
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Work out tags and labels
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: docker.io/${{ env.NAMESPACE }}/planstride-${{ matrix.image }}
+          flavor: latest=false
+          # A pre-release (1.2.3-rc.1) gets only its exact tag; 0.x skips the bare major tag.
+          tags: |
+            type=semver,pattern={{version}},value=${{ inputs.version }},enable=${{ inputs.version != '' }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ inputs.version }},enable=${{ inputs.version != '' && !contains(inputs.version, '-') }}
+            type=semver,pattern={{major}},value=${{ inputs.version }},enable=${{ inputs.version != '' && !contains(inputs.version, '-') && !startsWith(inputs.version, '0.') }}
+            type=raw,value=latest,enable=${{ inputs.version != '' && !contains(inputs.version, '-') }}
+            type=raw,value=edge,enable=${{ inputs.version == '' }}
+            type=sha,format=short
+          labels: |
+            org.opencontainers.image.title=${{ matrix.title }}
+            org.opencontainers.image.vendor=PlanStride
+
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: ${{ matrix.image }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          annotations: ${{ steps.meta.outputs.annotations }}
+          # Front ends bake their URLs in at build time; empty values keep .env.production's.
+          build-args: ${{ matrix.build-args }}
+          cache-from: type=gha,scope=planstride-${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=planstride-${{ matrix.image }}
+          provenance: mode=max
+          sbom: true
+
+      - name: Summary
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          {
+            echo "### planstride-$IMAGE"
+            echo
+            echo '```'
+            echo "$TAGS"
+            echo '```'
+            echo
+            echo "Digest: \`$DIGEST\`"
+          } >> "$GITHUB_STEP_SUMMARY"
