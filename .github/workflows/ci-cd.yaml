@@ -1,0 +1,223 @@
+name: CI/CD Pipeline
+
+# The whole pipeline in one place:
+#   pull request   -> code quality, API tests, front-end builds, Docker image smoke tests
+#   push to main   -> the same, then publish `edge` images to Docker Hub
+#   release.yaml   -> calls this workflow to re-check the commit it is about to release
+# API Tests, Frontend Build and Code Quality still run some of these checks on
+# their own; this pipeline is the one that gates publishing. Setup and secrets:
+# docs/DEPLOYMENT.md.
+
+on:
+  pull_request:
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "assessment/**"
+      - "branding/**"
+      - ".idea/**"
+  push:
+    branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "assessment/**"
+      - "branding/**"
+      - ".idea/**"
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-cd-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  quality:
+    name: Code quality
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.3.0
+        with:
+          python-version: "3.12"
+
+      - name: Install API dependencies
+        working-directory: api
+        run: uv sync --frozen
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: app/.nvmrc
+          cache: npm
+          cache-dependency-path: |
+            app/package-lock.json
+            internal/package-lock.json
+            site/package-lock.json
+
+      - name: Install front-end dependencies
+        run: |
+          for dir in app internal site; do
+            (cd "$dir" && npm ci --no-audit --no-fund)
+          done
+
+      - name: Cache pre-commit environments
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/pre-commit
+          key: pre-commit-${{ runner.os }}-${{ hashFiles('.pre-commit-config.yaml') }}
+
+      - name: Run every pre-commit hook
+        run: uv run --project api pre-commit run --all-files --show-diff-on-failure
+
+  api-tests:
+    name: API tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: api
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.3.0
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Run the tests
+        # testcontainers starts its own Postgres in Docker. Settings validation
+        # needs these two values; the suite never connects with them.
+        env:
+          SECRET_KEY: ci-only-secret-key-never-used-in-production
+          SQLALCHEMY_DATABASE_URI: postgresql+asyncpg://unused:unused@localhost:5432/unused
+        run: uv run pytest --cov=app --cov-report=term-missing:skip-covered
+
+  frontends:
+    name: Front end (${{ matrix.package }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        package: [app, internal, site]
+    defaults:
+      run:
+        working-directory: ${{ matrix.package }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: ${{ matrix.package }}/.nvmrc
+          cache: npm
+          cache-dependency-path: ${{ matrix.package }}/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Type-check, lint and format check
+        run: npm run validate
+
+      - name: Build
+        run: npm run build
+
+  images:
+    name: Docker image (${{ matrix.image }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [api, app, internal, site]
+    env:
+      IMAGE: ${{ matrix.image }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build the image
+        uses: docker/build-push-action@v7
+        with:
+          context: ${{ matrix.image }}
+          load: true
+          tags: planstride-${{ matrix.image }}:ci
+          cache-from: type=gha,scope=planstride-${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=planstride-${{ matrix.image }}
+
+      - name: Smoke-test the API image
+        if: matrix.image == 'api'
+        run: |
+          docker network create smoke
+          docker run --detach --name db --network smoke \
+            --env POSTGRES_PASSWORD=postgres --env POSTGRES_DB=planstride \
+            --health-cmd "pg_isready -U postgres" --health-interval 2s \
+            postgres:16-alpine
+          for _ in $(seq 30); do
+            [ "$(docker inspect --format '{{.State.Health.Status}}' db)" = healthy ] && break
+            sleep 2
+          done
+
+          settings=(
+            --env SQLALCHEMY_DATABASE_URI=postgresql+asyncpg://postgres:postgres@db:5432/planstride
+            --env SECRET_KEY=smoke-test-only
+            --env CORS_ORIGINS=http://localhost:3001
+          )
+          docker run --rm --network smoke "${settings[@]}" planstride-api:ci alembic upgrade head
+          docker run --detach --name api --network smoke --publish 8000:8000 "${settings[@]}" planstride-api:ci
+
+          for _ in $(seq 30); do
+            curl --silent --fail http://localhost:8000/app/health > /dev/null && break
+            sleep 2
+          done
+          curl --silent --show-error --fail http://localhost:8000/app/health | grep -q '"healthy"'
+          # The image runs as production, so the interactive docs must be off.
+          test "$(curl --silent --output /dev/null --write-out '%{http_code}' http://localhost:8000/app/docs)" = 404
+          echo "API image: migrations ran, /app/health is healthy, docs are off."
+
+      - name: Show the API logs
+        if: failure() && matrix.image == 'api'
+        run: docker logs api || true
+
+      - name: Smoke-test the web image
+        if: matrix.image != 'api'
+        run: |
+          docker run --detach --name web --publish 8080:8080 "planstride-$IMAGE:ci"
+          for _ in $(seq 15); do
+            curl --silent --fail http://localhost:8080/healthz > /dev/null && break
+            sleep 1
+          done
+          curl --silent --show-error --fail http://localhost:8080/ | grep -q "PlanStride"
+          if [ "$IMAGE" != site ]; then
+            # Deep links are client-side routes: nginx must answer with the app shell.
+            curl --silent --show-error --fail http://localhost:8080/some/deep/link | grep -q "PlanStride"
+          fi
+          echo "$IMAGE image: serves the page and its routes."
+
+  publish:
+    name: Publish edge images
+    needs: [quality, api-tests, frontends, images]
+    # Only for pushes to main, and only once Docker Hub is set up (docs/DEPLOYMENT.md).
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.DOCKERHUB_USERNAME != ''
+    uses: ./.github/workflows/docker-publish.yaml
+    secrets: inherit
