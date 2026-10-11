@@ -1,0 +1,63 @@
+name: CodeQL Security Analysis
+
+# Scans the Python API, the TypeScript front ends and these workflows with
+# CodeQL's security-extended queries. Results appear under Security -> Code
+# scanning. Free for public repositories; private ones need GitHub Code
+# Security. Keep CodeQL's "default setup" off, or it rejects this workflow.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Mondays 04:37 UTC: new queries and advisories also reach code that hasn't changed.
+    - cron: "37 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      actions: read
+      contents: read
+      packages: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [actions, javascript-typescript, python]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: ${{ matrix.language }}
+          # Python and TypeScript are analyzed from source; nothing to compile.
+          build-mode: none
+          queries: security-extended
+          config: |
+            paths-ignore:
+              # Generated: the API clients (orval) and the route trees (TanStack Router).
+              - app/src/api
+              - internal/src/api
+              - "**/routeTree.gen.ts"
+              # Tests aren't shipped.
+              - api/tests
+
+      - name: Analyze
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: /language:${{ matrix.language }}
