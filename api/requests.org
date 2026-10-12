@@ -1,0 +1,388 @@
+# Local Variables:
+# eval: (verb-mode)
+# End:
+
+* App API                                                         :verb:
+Template http://localhost:8000/app
+# Access-Token: Bearer TOKEN
+
+** Health check                                                       :verb:
+GET /health
+# Returns: 200 OK with {"status": "healthy"} when healthy
+# Returns: 503 Service Unavailable with {"status": "unhealthy"} when unhealthy
+
+** Sign up and start an organization
+POST /signup
+Content-Type: application/json
+# Returns: 201 Created with access token (and sets the access_token cookie)
+# Returns: 409 if the email is taken; 422 unless exactly one of
+#          organization_name / invite_token is given
+
+{
+  "first_name": "Nia",
+  "last_name": "Walker",
+  "email": "nia@example.com",
+  "password": "long-enough-1",
+  "organization_name": "Walker Robotics"
+}
+
+** Sign up through an invite link
+POST /signup
+Content-Type: application/json
+# Returns: 201 Created; joins with the invite's role
+# Returns: 404 if the token is unknown, used, revoked or expired
+
+{
+  "first_name": "Nia",
+  "last_name": "Walker",
+  "email": "nia@example.com",
+  "password": "long-enough-1",
+  "invite_token": "demo-join-northwind"
+}
+
+** Authenticate
+POST /auth
+Content-Type: application/json
+# Returns: 200 OK with access token
+# Returns: 401 for bad credentials, 403 ACCOUNT_DEACTIVATED for a deactivated account
+
+{
+  "email": "aisha@northwind.example",
+  "password": "planstride-demo"
+}
+
+** Logout
+POST /logout
+# Returns: 200 OK with {"message": "Successfully logged out"}
+
+** Get current user
+GET /users/self
+# Returns: 200 OK with user details
+# Requires: Authentication
+
+** Organizations
+*** List my organizations
+GET /organizations
+# Returns: 200 OK with [{id, name, role, is_suspended}]
+
+*** Create an organization
+POST /organizations
+Content-Type: application/json
+# Returns: 201 Created; the caller becomes its owner
+
+{
+  "name": "Side Project"
+}
+
+*** Get an organization
+GET /organizations/{{(verb-var organization-id)}}
+# Returns: 200 OK with my role and member/team counts
+# Returns: 404 if I'm not a member; 403 ORGANIZATION_SUSPENDED if suspended
+
+*** Rename an organization
+PATCH /organizations/{{(verb-var organization-id)}}
+Content-Type: application/json
+# Requires: owner or admin (403 ORG_MANAGER_REQUIRED otherwise)
+
+{
+  "name": "Northwind Labs Inc."
+}
+
+** Members
+*** List members
+GET /organizations/{{(verb-var organization-id)}}/members
+# Returns: 200 OK with role, join date and teams for each member
+
+*** Change a member's role
+PATCH /organizations/{{(verb-var organization-id)}}/members/{{(verb-var user-id)}}
+Content-Type: application/json
+# Requires: owner or admin. Admins can't touch owners or make new ones.
+# Returns: 409 if it would leave the organization without an owner
+
+{
+  "role": "admin"
+}
+
+*** Remove a member
+DELETE /organizations/{{(verb-var organization-id)}}/members/{{(verb-var user-id)}}
+# Returns: 204 No Content; also removes their team seats and any team lead role
+
+** Invitations
+*** List invitations
+GET /organizations/{{(verb-var organization-id)}}/invitations
+# Requires: owner or admin
+
+*** Create an invite link
+POST /organizations/{{(verb-var organization-id)}}/invitations
+Content-Type: application/json
+# Returns: 201 Created with the token (shown once; only its hash is stored)
+# Note: single use, valid 7 days; role is "member" or "admin"
+
+{
+  "role": "member"
+}
+
+*** Revoke an invitation
+DELETE /organizations/{{(verb-var organization-id)}}/invitations/{{(verb-var invitation-id)}}
+# Returns: 200 OK with the revoked invitation
+
+*** Preview an invite link (public)
+GET /invitations/demo-join-northwind
+# Returns: 200 OK with {organization_name, role, invited_by, expires_at}
+
+*** Accept an invite as the signed-in user
+POST /invitations/demo-join-northwind/accept
+# Returns: 200 OK with the organization; 409 if already a member
+
+** Teams
+*** List teams
+GET /organizations/{{(verb-var organization-id)}}/teams
+
+*** Create a team
+POST /organizations/{{(verb-var organization-id)}}/teams
+Content-Type: application/json
+# Requires: owner or admin. The lead is added to the team.
+
+{
+  "name": "Growth",
+  "description": "Activation and onboarding.",
+  "lead_user_id": "{{(verb-var user-id)}}",
+  "member_ids": []
+}
+
+*** Get a team
+GET /organizations/{{(verb-var organization-id)}}/teams/{{(verb-var team-id)}}
+
+*** Update a team (send "lead_user_id": null to clear the lead)
+PATCH /organizations/{{(verb-var organization-id)}}/teams/{{(verb-var team-id)}}
+Content-Type: application/json
+
+{
+  "lead_user_id": "{{(verb-var user-id)}}"
+}
+
+*** Delete a team
+DELETE /organizations/{{(verb-var organization-id)}}/teams/{{(verb-var team-id)}}
+
+*** Add a member to a team
+PUT /organizations/{{(verb-var organization-id)}}/teams/{{(verb-var team-id)}}/members/{{(verb-var user-id)}}
+
+*** Remove a member from a team
+DELETE /organizations/{{(verb-var organization-id)}}/teams/{{(verb-var team-id)}}/members/{{(verb-var user-id)}}
+
+*** The team's week
+GET /organizations/{{(verb-var organization-id)}}/teams/{{(verb-var team-id)}}/weeks/{{(verb-var week-start)}}
+# week-start is a Monday, e.g. 2026-10-12
+# Requires: on the team, its lead, or an owner/admin (403 otherwise)
+# Note: other people's drafts show their status but not their content
+
+*** Team history
+GET /organizations/{{(verb-var organization-id)}}/teams/{{(verb-var team-id)}}/history?weeks=8
+
+** Plans
+*** My week
+GET /organizations/{{(verb-var organization-id)}}/me/weeks/{{(verb-var week-start)}}
+# Returns: 200 OK with {week_start, plan | null, reviewers}
+
+*** My plans (history)
+GET /organizations/{{(verb-var organization-id)}}/me/plans?limit=20&offset=0
+
+*** Create my plan for a week
+POST /organizations/{{(verb-var organization-id)}}/plans
+Content-Type: application/json
+# Returns: 201 Created as a draft; 409 if I already have a plan that week
+# Returns: 400 unless week_start is a Monday from last week to 4 weeks ahead
+
+{
+  "week_start": "{{(verb-var week-start)}}",
+  "main_task": "Refunds reach the ledger within a minute, verified in production",
+  "why_it_matters": "Support issues refunds by hand today.",
+  "sub_goals": [{"title": "Partial refunds supported in the dialog"}],
+  "go_to_market": [{"title": "Changelog entry for dashboard refunds"}]
+}
+
+*** Get a plan
+GET /organizations/{{(verb-var organization-id)}}/plans/{{(verb-var plan-id)}}
+# Returns: 200 OK with tasks and the caller's permissions
+# Returns: 404 for someone else's draft, or a plan by someone I share no team with
+
+*** Replace a draft's content
+PUT /organizations/{{(verb-var organization-id)}}/plans/{{(verb-var plan-id)}}
+Content-Type: application/json
+# Note: tasks sent with their id keep their ticked state; omitted tasks are deleted
+
+{
+  "main_task": "Refunds reach the ledger within a minute, verified in production",
+  "why_it_matters": "Support issues refunds by hand today.",
+  "sub_goals": [{"id": "{{(verb-var task-id)}}", "title": "Partial refunds in the dialog"}],
+  "go_to_market": []
+}
+
+*** Delete a draft
+DELETE /organizations/{{(verb-var organization-id)}}/plans/{{(verb-var plan-id)}}
+
+*** Submit
+POST /organizations/{{(verb-var organization-id)}}/plans/{{(verb-var plan-id)}}/submit
+
+*** Withdraw (submitted -> draft)
+POST /organizations/{{(verb-var organization-id)}}/plans/{{(verb-var plan-id)}}/withdraw
+
+*** Approve (team lead only)
+POST /organizations/{{(verb-var organization-id)}}/plans/{{(verb-var plan-id)}}/approve
+Content-Type: application/json
+# Requires: lead of a team both the lead and the author are on; never the author
+# Returns: 403 TEAM_LEAD_REQUIRED / SELF_REVIEW otherwise
+
+{
+  "comment": "Good scope. Ship it."
+}
+
+*** Return with a comment (team lead only)
+POST /organizations/{{(verb-var organization-id)}}/plans/{{(verb-var plan-id)}}/return
+Content-Type: application/json
+# Returns: 200 OK; the plan goes back to draft with the comment on it
+
+{
+  "comment": "This is three projects. Pick the Postgres upgrade."
+}
+
+*** Close the week
+POST /organizations/{{(verb-var organization-id)}}/plans/{{(verb-var plan-id)}}/complete
+Content-Type: application/json
+# Requires: author, approved plan. Shipping ticks the main task.
+
+{
+  "main_task_shipped": true,
+  "outcome_note": "Shipped Thursday."
+}
+
+*** Tick a task
+PATCH /organizations/{{(verb-var organization-id)}}/plans/{{(verb-var plan-id)}}/tasks/{{(verb-var task-id)}}
+Content-Type: application/json
+# Requires: author; not once the week is closed
+
+{
+  "status": "done"
+}
+
+*** Review queue
+GET /organizations/{{(verb-var organization-id)}}/reviews
+# Returns: submitted plans from the teams I lead, oldest first
+
+** AI
+*** Review the plan in the editor
+POST /organizations/{{(verb-var organization-id)}}/ai/plan-review
+Content-Type: application/json
+# Returns: 200 OK with {verdict, summary, findings[{task_key, category, problem,
+#          suggested_rewrite, action}]}; never changes the plan
+# Returns: 429 AI_THROTTLED / AI_RATE_LIMITED, 503 AI_NOT_CONFIGURED /
+#          AI_UNAVAILABLE, 504 AI_TIMEOUT, 502 AI_INVALID_OUTPUT
+
+{
+  "week_start": "{{(verb-var week-start)}}",
+  "why_it_matters": null,
+  "tasks": [
+    {"key": "main", "kind": "main", "title": "Implement checkout"},
+    {"key": "sub-1", "kind": "sub_goal", "title": "Write tests"}
+  ]
+}
+
+*** Draft a plan from a brain dump
+POST /organizations/{{(verb-var organization-id)}}/ai/plan-draft
+Content-Type: application/json
+# Returns: 200 OK with a suggested plan for the editor; nothing is saved
+
+{
+  "week_start": "{{(verb-var week-start)}}",
+  "notes": "need to finish the billing page, probably also fix that webhook bug, should announce it in the changelog"
+}
+
+* Internal API                                                            :verb:
+Template http://localhost:8000/internal
+# Access-Token: Bearer TOKEN
+
+** Health check                                                       :verb:
+GET /health
+# Returns: 200 OK with {"status": "healthy"} when healthy
+# Returns: 503 Service Unavailable with {"status": "unhealthy"} when unhealthy
+
+** Authenticate
+POST /auth
+Content-Type: application/json
+# Returns: 200 OK with access token
+# Note: only active platform staff may authenticate here; customer owners and
+#       admins get the same 401 as bad credentials
+
+{
+  "email": "staff@planstride.example",
+  "password": "planstride-demo"
+}
+
+** Logout
+POST /logout
+# Returns: 200 OK with {"message": "Successfully logged out"}
+
+** Overview
+GET /overview
+# Returns: headline counts for the dashboard
+
+** Get current internal user
+GET /users/self
+# Returns: 200 OK with internal user details
+# Requires: platform staff (403 PLATFORM_STAFF_REQUIRED otherwise)
+
+** List / search users
+GET /users?search=northwind&limit=50&offset=0
+# Returns: 200 OK with {items, total, limit, offset}; each user lists their
+#          organizations and roles
+
+** Get a user
+GET /users/{{(verb-var user-id)}}
+
+** Update a user (partial)
+PATCH /users/{{(verb-var user-id)}}
+Content-Type: application/json
+# Note: is_active false deactivates (locked out at their next request)
+# Note: staff access can't be granted here; use manage.py create-user --admin
+# Returns: 400 if staff try to deactivate themselves
+
+{
+  "is_active": false
+}
+
+** Change user password
+POST /users/{{(verb-var user-id)}}/change-password
+Content-Type: application/json
+# Returns: 204 No Content
+
+{
+  "password": "brandnew1"
+}
+
+** List organizations
+GET /organizations?status=suspended&search=north&limit=50&offset=0
+# Returns: member/team/plan counts, owners and last activity; no plan content
+
+** Get an organization
+GET /organizations/{{(verb-var organization-id)}}
+# Returns: members, teams, plan counts by status and 30-day AI usage
+
+** Suspend an organization
+POST /organizations/{{(verb-var organization-id)}}/suspend
+Content-Type: application/json
+# Returns: 200 OK; every member is locked out of it until reinstated
+
+{
+  "reason": "Chargeback dispute on the last invoice."
+}
+
+** Reinstate an organization
+POST /organizations/{{(verb-var organization-id)}}/reinstate
+
+** AI usage summary
+GET /ai-usage?days=30
+# Returns: totals, per organization, per feature, per day and per error type
+
+** AI usage events
+GET /ai-usage/events?outcome=rate_limited&limit=50&offset=0
+# Returns: individual calls (metadata only: no prompts or output)
