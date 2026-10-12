@@ -9,6 +9,11 @@
 Friday result: one thing to ship, checked by AI before you approve it, tracked
 through the week.**
 
+## Live application
+
+The latest production deployment is available at
+[PlanStride Live url](https://plan-stride-yvk4.vercel.app/).
+
 Each member writes a plan for the week: one main task and why it matters, a few
 sub-goals that get it over the line, and go-to-market goals that put the work in
 front of users. An AI reviewer (Pydantic AI + Gemini) flags tasks you couldn't
