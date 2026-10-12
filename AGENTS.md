@@ -44,3 +44,9 @@ When the agent gets something wrong, record the fix here or in the folder's
   server that drifted to 3004 turned every sign-in into a "Network error".
 - If you start servers yourself (no tmux session running), stop them before
   handing back, or the developer's own `make run` finds the ports taken.
+- In production the front ends call the API at `/api` on their own host, which
+  their `vercel.json` forwards to the API project. Don't point a production
+  build at the API's own host: `*.vercel.app` addresses are separate sites, so
+  the session cookie would become third-party and sign-in would fail. A
+  rewrite's destination must be the API's production domain; Vercel puts a
+  login page in front of deployment URLs.

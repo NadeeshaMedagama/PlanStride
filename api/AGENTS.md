@@ -35,3 +35,5 @@
 - The surfaces are mounted sub-apps: set test `dependency_overrides` on `app_api` and `internal_api`, not only the root app.
 - Coverage needs `concurrency = ["greenlet", "thread"]` (already in `pyproject.toml`), or lines after an `await` show as missed.
 - Ruff 0.16 enables bugbear: give non-primitive query parameters FastAPI's `Annotated[..., Query()]` form instead of `= Query(...)` defaults.
+- Hosted Postgres (Neon) hands out libpq URLs, and asyncpg rejects their `sslmode` and `channel_binding`. Settings pass `SQLALCHEMY_DATABASE_URI` through `asyncpg_url` (`app/config.py`), so the URL is pasted as given; keep every way in (the app, alembic, `manage.py`) on `settings`.
+- On Vercel (`VERCEL=1`) the engine uses `NullPool` (`pool_options` in `app/database.py`): frozen serverless instances would otherwise hold idle connections against Neon's limit.

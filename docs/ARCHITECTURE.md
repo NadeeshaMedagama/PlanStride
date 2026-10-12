@@ -316,6 +316,12 @@ internal response.
   shown once, when it's created.
 - Role changes and removals lock the organization row, so two concurrent
   demotions can't both pass the "at least one owner" check.
+- Each surface keeps its session in its own `HttpOnly`, `SameSite=Lax` cookie
+  (`access_token`, `internal_access_token`), `Secure` outside local
+  development. In production each front end reaches the API through its own
+  `/api` path, which Vercel forwards to the API (`app/vercel.json`), so the
+  cookie belongs to the site the person is on: never a third-party cookie, and
+  no CORS on the front ends' own requests.
 
 ## 9. Conventions followed from Launchbase
 
