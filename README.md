@@ -36,8 +36,9 @@ follows its conventions (see the `AGENTS.md` files).
 
 ## Run it locally
 
-Everything runs with local commands; there is no Docker setup for the app.
-Docker is only used by the API test suite, which starts its own Postgres.
+Everything runs with local commands. Docker is only needed for the API test
+suite, which starts its own Postgres. (Each package also has a Dockerfile for
+production images; see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).)
 Linux (Ubuntu 24.04) and macOS are covered below; on Windows, use WSL 2.
 
 ### 1. Install the tools
@@ -150,7 +151,7 @@ http://localhost:3001/join/demo-join-northwind. The link works once;
 
 ```bash
 cd api && uv run manage.py seed --reset   # wipe the database and reload the demo
-cd api && uv run pytest                   # 167 tests; Docker must be running; no API key or network needed
+cd api && uv run pytest                   # 183 tests; Docker must be running; no API key or network needed
 uv run --project api pre-commit run --all-files   # ruff, pyright, oxfmt, oxlint, tsc (files tracked by git)
 cd api && uv run manage.py create-user --first-name Ada --last-name Ops --email ada@example.com --admin
                                           # another staff account; prints a generated password
@@ -177,6 +178,8 @@ cd app && npm run generate                # after an API change, with the API ru
   what staff can and can't see
 - [docs/ROADMAP.md](docs/ROADMAP.md): the delivery plan, revised against the brief,
   with status
+- [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md): putting it online with Vercel and a
+  Neon database, releases, and the Docker images
 - [SUBMISSION.md](SUBMISSION.md): how to run and review it, demo logins, the brand,
   and what isn't done
 

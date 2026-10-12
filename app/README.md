@@ -148,8 +148,15 @@ app roughly 3-6x faster than the 6.x JavaScript one.
 make build             # -> dist/client/
 ```
 
-### Cloudflare Static Hosting
+### Vercel
 
-This template is optimized for deployment on **Cloudflare Pages**. Publish the
-`dist/client/` directory. `public/_redirects` ships the SPA fallback rule that
-serves `_shell.html` for every path, so deep links like `/dashboard` resolve.
+PlanStride deploys this folder as a Vercel project
+([docs/DEPLOYMENT.md](../docs/DEPLOYMENT.md)). `vercel.json` publishes
+`dist/client/` with two rewrites: `/api/*` goes to the API project, so the app
+calls the API through its own address (`VITE_API_URL=/api` in
+`.env.production`) and its session cookie is first-party; every other path gets
+`_shell.html`, so deep links like `/orgs/…/week` resolve in the router.
+
+On another static host, serve `_shell.html` for unknown paths
+(`public/_redirects` does this on Cloudflare Pages and Netlify) and forward
+`/api/` to the API.
