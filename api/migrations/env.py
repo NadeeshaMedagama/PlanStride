@@ -27,7 +27,11 @@ target_metadata = Base.metadata
 # can be acquired:
 # my_important_option = config.get_main_option("my_important_option")
 # ... etc.
-config.set_main_option("sqlalchemy.url", settings.SQLALCHEMY_DATABASE_URI)
+# The option goes through ConfigParser interpolation, so a percent-encoded
+# character in the URL (a password with "@" in it, say) needs its "%" doubled.
+config.set_main_option(
+    "sqlalchemy.url", settings.SQLALCHEMY_DATABASE_URI.replace("%", "%%")
+)
 
 # def run_migrations_offline() -> None:
 #     """Run migrations in 'offline' mode.

@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import NullPool
 
 import app.database
+from app.config import settings
 from app.models import Base
 
 MIGRATIONS = Path(__file__).resolve().parents[1] / "migrations"
@@ -70,3 +71,22 @@ def test_migrations_build_the_models_schema_and_roll_back(
 
     command.downgrade(config, "base")
     command.upgrade(config, "head")  # and forward again from scratch
+
+
+def test_migrations_run_with_a_percent_encoded_database_url(
+    empty_database_url, monkeypatch
+):
+    # A password with "@" or "%" in it reaches the URL percent-encoded, and
+    # env.py hands the URL to alembic's config parser, which treats "%" as
+    # interpolation.
+    monkeypatch.setattr(
+        settings,
+        "SQLALCHEMY_DATABASE_URI",
+        "postgresql+asyncpg://planstride:p%40ss%25word@db.example.com/planstride",
+    )
+    engine = create_async_engine(empty_database_url, poolclass=NullPool)
+    monkeypatch.setattr(app.database, "async_engine", engine)
+    config = Config()
+    config.set_main_option("script_location", str(MIGRATIONS))
+
+    command.upgrade(config, "head")
