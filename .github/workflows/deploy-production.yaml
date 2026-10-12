@@ -1,10 +1,12 @@
 name: Deploy Production
 
 # Deploys a release tag to Vercel: database migrations first, then the API, then
-# the app, the internal console and the landing page. release.yaml calls this
-# after each stable release; run it by hand to redeploy a version or to roll
-# back to an earlier one. The job runs in the `production` environment, so its
-# required reviewers approve every deploy. Setup: docs/DEPLOYMENT.md.
+# the app, the internal console and the landing page. The API and the app are
+# required; the internal console and the landing page deploy once their Vercel
+# projects are set up. release.yaml calls this after each stable release; run it
+# by hand to redeploy a version or to roll back to an earlier one. The job runs
+# in the `production` environment, so its required reviewers approve every
+# deploy. Setup: docs/DEPLOYMENT.md.
 
 on:
   workflow_call:
@@ -54,11 +56,11 @@ jobs:
           [ -n "$VERCEL_ORG_ID" ] || missing+=("the VERCEL_ORG_ID variable")
           [ -n "$PROJECT_API" ] || missing+=("the VERCEL_PROJECT_ID_API variable")
           [ -n "$PROJECT_APP" ] || missing+=("the VERCEL_PROJECT_ID_APP variable")
-          [ -n "$PROJECT_INTERNAL" ] || missing+=("the VERCEL_PROJECT_ID_INTERNAL variable")
-          [ -n "$PROJECT_SITE" ] || missing+=("the VERCEL_PROJECT_ID_SITE variable")
           for item in "${missing[@]}"; do
             echo "::error::Set $item (docs/DEPLOYMENT.md)."
           done
+          [ -n "$PROJECT_INTERNAL" ] || echo "::notice::VERCEL_PROJECT_ID_INTERNAL isn't set, so the internal console isn't deployed."
+          [ -n "$PROJECT_SITE" ] || echo "::notice::VERCEL_PROJECT_ID_SITE isn't set, so the landing page isn't deployed."
           if ! [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
             echo "::error::\"$VERSION\" isn't a release tag like v1.2.3."
             missing+=("a valid version")
@@ -136,7 +138,16 @@ jobs:
           vercel build --prod --token="$VERCEL_TOKEN"
           vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN"
 
+      # The app calls the API through its own /api path (app/vercel.json), so
+      # this fails if that rewrite points at the wrong host.
+      - name: Check the app reaches the API
+        if: vars.PRODUCTION_APP_URL != ''
+        env:
+          APP_URL: ${{ vars.PRODUCTION_APP_URL }}
+        run: curl --silent --show-error --fail --retry 6 --retry-delay 5 --retry-all-errors "$APP_URL/api/app/health"
+
       - name: Deploy the internal console
+        if: vars.VERCEL_PROJECT_ID_INTERNAL != ''
         env:
           VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID_INTERNAL }}
         run: |
@@ -145,6 +156,7 @@ jobs:
           vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN"
 
       - name: Deploy the landing page
+        if: vars.VERCEL_PROJECT_ID_SITE != ''
         env:
           VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID_SITE }}
         run: |
