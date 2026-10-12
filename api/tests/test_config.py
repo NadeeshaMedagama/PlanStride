@@ -99,6 +99,73 @@ def test_the_vercel_flag_comes_from_vercels_own_variable(monkeypatch):
     assert Settings(SQLALCHEMY_DATABASE_URI=NEON_URL, SECRET_KEY="test").VERCEL
 
 
+# What Neon's Vercel integration sets: the direct and the pooled connection.
+NEON_DIRECT = (
+    "postgresql://neondb_owner:npg_s3cret@ep-cool-name-a1b2c3d4.us-east-1.aws"
+    ".neon.tech/neondb?sslmode=require"
+)
+NEON_POOLED = (
+    "postgresql://neondb_owner:npg_s3cret@ep-cool-name-a1b2c3d4-pooler.us-east-1"
+    ".aws.neon.tech/neondb?sslmode=require&channel_binding=require"
+)
+
+
+@pytest.fixture
+def environment(monkeypatch):
+    """Settings read from the environment alone, as on a fresh Vercel project:
+    no api/.env, and only the variables a test sets."""
+    for name in (
+        "SQLALCHEMY_DATABASE_URI",
+        "DATABASE_URL_UNPOOLED",
+        "DATABASE_URL",
+        "VERCEL",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("SECRET_KEY", "test")
+    return monkeypatch
+
+
+def test_on_vercel_neons_own_variables_are_enough(environment):
+    environment.setenv("VERCEL", "1")
+    environment.setenv("DATABASE_URL_UNPOOLED", NEON_DIRECT)
+    environment.setenv("DATABASE_URL", NEON_POOLED)
+
+    settings = Settings(_env_file=None)
+
+    assert settings.SQLALCHEMY_DATABASE_URI == asyncpg_url(NEON_DIRECT)
+
+
+def test_on_vercel_the_pooled_connection_serves_when_it_is_all_there_is(
+    environment,
+):
+    environment.setenv("VERCEL", "1")
+    environment.setenv("DATABASE_URL", NEON_POOLED)
+
+    settings = Settings(_env_file=None)
+
+    assert settings.SQLALCHEMY_DATABASE_URI == asyncpg_url(NEON_POOLED)
+
+
+def test_a_database_url_that_is_set_wins_over_neons_variables(environment):
+    environment.setenv("VERCEL", "1")
+    environment.setenv("DATABASE_URL_UNPOOLED", NEON_DIRECT)
+    environment.setenv("SQLALCHEMY_DATABASE_URI", "postgresql://app:pw@db/app")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.SQLALCHEMY_DATABASE_URI == "postgresql+asyncpg://app:pw@db/app"
+
+
+def test_off_vercel_neons_variables_are_never_connected_to(environment):
+    # A local api/.env may hold the production credentials next to the local
+    # database's URL; leaving that URL out must fail, not reach production.
+    environment.setenv("DATABASE_URL_UNPOOLED", NEON_DIRECT)
+    environment.setenv("DATABASE_URL", NEON_POOLED)
+
+    with pytest.raises(ValidationError, match="SQLALCHEMY_DATABASE_URI cannot be"):
+        Settings(_env_file=None)
+
+
 async def test_a_libpq_connection_string_connects_once_translated(postgres_container):
     # What a pasted Neon URL becomes, against a real server. The test server
     # has no TLS, so the same parameters ask for none.

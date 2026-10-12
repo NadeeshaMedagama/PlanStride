@@ -1,6 +1,6 @@
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import field_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import ArgumentError
@@ -43,6 +43,10 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "DEBUG"
     SECRET_KEY: str = ""
     SQLALCHEMY_DATABASE_URI: str = ""
+    # Set by Neon's Vercel integration: the direct and the pooled connection.
+    # On Vercel they stand in for an unset SQLALCHEMY_DATABASE_URI.
+    DATABASE_URL_UNPOOLED: str = ""
+    DATABASE_URL: str = ""
     SQLALCHEMY_ECHO: bool = False
     SECURE_COOKIE: bool = True
 
@@ -72,6 +76,22 @@ class Settings(BaseSettings):
     # workers without extra infrastructure.
     AI_REQUESTS_PER_USER_PER_MINUTE: int = 6
 
+    @model_validator(mode="before")
+    @classmethod
+    def use_neons_vercel_variables(cls, data: Any) -> Any:
+        """On Vercel, connect through Neon's own variables when no
+        SQLALCHEMY_DATABASE_URI is set, so connecting the project to Neon is
+        the whole database setup. The direct connection is preferred. Never
+        off Vercel: a local .env holding production credentials must not be
+        connected to by accident.
+        """
+        if not isinstance(data, dict) or data.get("SQLALCHEMY_DATABASE_URI"):
+            return data
+        if str(data.get("VERCEL", "")).strip().lower() not in ("1", "true"):
+            return data
+        neon = data.get("DATABASE_URL_UNPOOLED") or data.get("DATABASE_URL")
+        return {**data, "SQLALCHEMY_DATABASE_URI": neon} if neon else data
+
     @field_validator("SECRET_KEY")
     @classmethod
     def validate_secret_key(cls, v):
@@ -86,7 +106,8 @@ class Settings(BaseSettings):
     def validate_database_uri(cls, v):
         if not v or not v.strip():
             raise ValueError(
-                "SQLALCHEMY_DATABASE_URI cannot be empty. Set SQLALCHEMY_DATABASE_URI environment variable."
+                "SQLALCHEMY_DATABASE_URI cannot be empty. Set SQLALCHEMY_DATABASE_URI "
+                "environment variable, or on Vercel connect the project to Neon."
             )
         try:
             return asyncpg_url(v.strip())
