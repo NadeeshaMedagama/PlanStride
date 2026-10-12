@@ -6,50 +6,86 @@ sites. Every release also publishes Docker images to Docker Hub for anyone who
 would rather host it themselves.
 
 Each front end calls the API through its own address: a request to
-`https://planstride-app.vercel.app/api/app/auth` is forwarded by Vercel to
-`https://planstride-api.vercel.app/app/auth` (the rewrite in `app/vercel.json`).
-To the browser, the API is part of the site it is on, so the session cookie is a
-first-party cookie and sign-in works on the free `*.vercel.app` addresses. No
-custom domain is needed.
+`https://plan-stride-app.vercel.app/api/app/auth` is forwarded by Vercel to
+`https://plan-stride.vercel.app/app/auth`, the API project (the rewrite in
+`app/vercel.json`). To the browser, the API is part of the site it is on, so the
+session cookie is a first-party cookie and sign-in works on the free
+`*.vercel.app` addresses. No custom domain is needed.
 
 ```
-browser ──> planstride-app.vercel.app ──/api/*──> planstride-api.vercel.app ──> Neon Postgres
-            static app (app/)             rewrite   FastAPI function (api/)
+browser ──> plan-stride-app.vercel.app ──/api/*──> plan-stride.vercel.app ──> Neon Postgres
+            static app (app/)             rewrite   FastAPI function (api/)     (us-east-1)
 ```
 
-## Deploy the product: database, API and app
+## Deploy the product: API, database and app
 
 This is everything customers use. It takes about twenty minutes, all of it in the
-Neon and Vercel dashboards except one command that creates the tables.
+Vercel and Neon dashboards except one command that creates the tables.
 
-### 1. Create the database on Neon
+### 1. Deploy the API
 
-1. Sign up at [neon.com](https://neon.com) and create a project. Pick the region
-   **AWS US East 1 (N. Virginia)**: Vercel runs functions in Washington, D.C.
-   (`iad1`) unless you change it, and every API request makes several database
-   round trips, so the two must be close. (To serve Asia faster, choose
-   Singapore for both instead: Neon `aws-ap-southeast-1`, and in the Vercel API
-   project, Settings → Functions → Function Region → `sin1`.)
-2. Postgres 16 or newer; Neon's default is fine.
-3. On the project dashboard choose **Connect**, turn **Connection pooling off**,
-   and copy the connection string. It looks like this:
+In Vercel: **Add New → Project**, import this GitHub repository, and set:
 
-   ```
-   postgresql://neondb_owner:npg_…@ep-…-….us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require
-   ```
+| Setting | Value |
+| --- | --- |
+| Project Name | `plan-stride` (the address the front ends forward `/api` to, see below) |
+| Root Directory | `api` (Vercel then detects FastAPI) |
 
-   Use it exactly as given, everywhere this guide asks for the database URL. The
-   API translates it for its driver (asyncpg). The pooled string (with `-pooler`
-   in the host) isn't needed: on Vercel the API opens one connection per
-   request and closes it straight after, and migrations need the direct one.
+Open **Environment Variables** on the same screen and add:
 
-Prefer to add Neon from Vercel's Marketplace instead? It creates
-`DATABASE_URL` and `DATABASE_URL_UNPOOLED` variables in the project you connect
-it to. Copy the `DATABASE_URL_UNPOOLED` value: that is the database URL.
+| Name | Value |
+| --- | --- |
+| `SECRET_KEY` | Required. The output of `openssl rand -hex 32`. Signs the session tokens; changing it signs everyone out. |
+| `ENVIRONMENT` | `production` (also turns off the interactive API docs) |
+| `GOOGLE_API_KEY` | Optional. A Gemini key from [Google AI Studio](https://aistudio.google.com/apikey); without it the AI buttons explain that AI isn't set up, and everything else works. |
+| `LOG_LEVEL` | `INFO` |
 
-### 2. Create the tables
+Then **Deploy**. (If no deployment starts, open **Deployments → Create
+Deployment** and enter `main`: `vercel.json` switches off deploys on push, see
+[Shipping changes](#shipping-changes).) Until it has a database (step 2), every
+request answers 500 `FUNCTION_INVOCATION_FAILED`: the API refuses to start
+without one.
 
-From your machine, in the repository:
+`api/vercel.json` runs the API in Washington, D.C. (`iad1`). Every request makes
+several database round trips, so the database must be in the same place: AWS US
+East 1. (A database elsewhere needs `regions` in `api/vercel.json` changed to
+match, or each request takes seconds.)
+
+The front ends forward `/api` to `https://plan-stride.vercel.app`. Check the API
+project's address under **Settings → Domains**; if yours is different (Vercel
+adds a suffix when a name is taken), put it in the `destination` of the
+`/api/:path*` rewrite in `app/vercel.json`, and in `internal/vercel.json` if you
+deploy the console, then commit and push. Use that production address, not a
+deployment URL such as `plan-stride-git-main-….vercel.app`: Vercel puts a login
+page in front of deployment URLs, so forwarded requests would get that page
+instead of the API.
+
+### 2. Give it a database
+
+Either way works; the first needs nothing copied.
+
+- **From Vercel (simplest):** in the API project, open **Storage → Create
+  Database → Neon**, pick **Washington, D.C. (US East 1)**, and connect it to the
+  project. Vercel adds `DATABASE_URL` and `DATABASE_URL_UNPOOLED` to the
+  project's variables, and the API uses them by itself: on Vercel, when
+  `SQLALCHEMY_DATABASE_URI` isn't set, it connects with `DATABASE_URL_UNPOOLED`.
+- **From [neon.com](https://neon.com):** create a project in **AWS US East 1
+  (N. Virginia)**, choose **Connect**, turn **Connection pooling off**, copy the
+  connection string, and add it to the API project as
+  `SQLALCHEMY_DATABASE_URI`. Paste it as given
+  (`postgresql://…?sslmode=require&channel_binding=require`): the API
+  translates it for its driver (asyncpg).
+
+Then redeploy the API (**Deployments → ⋯ → Redeploy**, or Create Deployment with
+`main`) and open `https://plan-stride.vercel.app/app/health`. It should say
+`{"status":"healthy"}`.
+
+### 3. Create the tables
+
+You need the database's direct connection string: the `DATABASE_URL_UNPOOLED`
+value (Vercel shows it under the project's **Settings → Environment
+Variables**), or the string from neon.com. From your machine, in the
+repository:
 
 ```bash
 cd api
@@ -65,46 +101,13 @@ migrations don't use it.) It should finish with
 Run the same command whenever a release adds a migration, before deploying the
 API. The release workflow does this for you.
 
-### 3. Deploy the API
-
-In Vercel: **Add New → Project**, import this GitHub repository, and set:
-
-| Setting | Value |
-| --- | --- |
-| Project Name | `planstride-api` |
-| Root Directory | `api` (Vercel then detects FastAPI) |
-
-Open **Environment Variables** on the same screen and add:
-
-| Name | Value |
-| --- | --- |
-| `ENVIRONMENT` | `production` (also turns off the interactive API docs) |
-| `SECRET_KEY` | The output of `openssl rand -hex 32`. Signs the session tokens; changing it signs everyone out. |
-| `SQLALCHEMY_DATABASE_URI` | The Neon connection string from step 1 |
-| `GOOGLE_API_KEY` | Optional. A Gemini key from [Google AI Studio](https://aistudio.google.com/apikey); without it the AI buttons explain that AI isn't set up, and everything else works. |
-| `LOG_LEVEL` | `INFO` |
-
-Then **Deploy**. (If no deployment starts, open **Deployments → Create
-Deployment** and enter `main`: `vercel.json` switches off deploys on push, see
-[Shipping changes](#shipping-changes).) When it's done, open
-`https://planstride-api.vercel.app/app/health`. It should say
-`{"status":"healthy"}`.
-
-Check the project's address under **Settings → Domains**. If it isn't
-`planstride-api.vercel.app` (Vercel adds a suffix when a name is taken), put
-yours in the `destination` of the `/api/:path*` rewrite in `app/vercel.json`, and
-in `internal/vercel.json` if you deploy the console, then commit and push. Use
-that production address, not a deployment URL such as
-`planstride-api-git-main-….vercel.app`: Vercel puts a login page in front of
-deployment URLs, so forwarded requests would get that page instead of the API.
-
 ### 4. Deploy the app
 
 **Add New → Project** again, the same repository:
 
 | Setting | Value |
 | --- | --- |
-| Project Name | `planstride-app` |
+| Project Name | `plan-stride-app` |
 | Root Directory | `app` |
 
 It needs no environment variables: `app/.env.production` points it at `/api`.
@@ -112,22 +115,25 @@ It needs no environment variables: `app/.env.production` points it at `/api`.
 
 ### 5. Try it
 
-1. Open `https://planstride-app.vercel.app/api/app/health`. Seeing
+1. Open `https://plan-stride-app.vercel.app/api/app/health`. Seeing
    `{"status":"healthy"}` here proves the app's rewrite reaches the API.
-2. Open `https://planstride-app.vercel.app` and sign up. That creates your
+2. Open `https://plan-stride-app.vercel.app` and sign up. That creates your
    organization, with you as its owner; invite the rest of the team from
    **Members**.
 
-Production starts empty. Don't run `manage.py seed` against it: every demo
-account, a staff account among them, uses a password that is in this
-repository.
+Production starts empty. To show the demo from the README instead, run
+`SQLALCHEMY_DATABASE_URI='postgresql://neondb_owner:…' uv run manage.py seed` in
+`api/` (it refuses when `ENVIRONMENT` is `production`, so run it with your local
+`api/.env`). Know what that publishes: every demo account, the staff account
+among them, uses a password that is in this repository, so anyone who reads it
+can sign in, to the internal console's API included.
 
 ## Optional: the internal console and the landing page
 
 ### The internal console
 
 The staff back office deploys like the app: a project named
-`planstride-internal` with Root Directory `internal` and no environment
+`plan-stride-internal` with Root Directory `internal` and no environment
 variables. Its own `vercel.json` forwards `/api` to the API in the same way.
 
 Staff accounts are created only from the command line. Create the first one
@@ -141,13 +147,13 @@ SQLALCHEMY_DATABASE_URI='postgresql://neondb_owner:…' \
 
 ### The landing page
 
-A project named `planstride-site` with Root Directory `site`, and two
+A project named `plan-stride-site` with Root Directory `site`, and two
 environment variables, both read at build time:
 
 | Name | Value |
 | --- | --- |
-| `VITE_SITE_URL` | The landing page's own address, such as `https://planstride-site.vercel.app`, for its canonical link and social card |
-| `VITE_APP_URL` | The app's address, such as `https://planstride-app.vercel.app`, for the sign-up and sign-in buttons |
+| `VITE_SITE_URL` | The landing page's own address, such as `https://plan-stride-site.vercel.app`, for its canonical link and social card |
+| `VITE_APP_URL` | The app's address, such as `https://plan-stride-app.vercel.app`, for the sign-up and sign-in buttons |
 
 ## Shipping changes
 
@@ -158,7 +164,7 @@ The `vercel.json` in each folder turns off Vercel's deploy-on-push, so a push to
   configured project, and waits for your approval first.
 - **By hand:** in each project you changed, open **Deployments → Create
   Deployment** and enter `main`. Deploy the API before the front ends, and if
-  the changes add a migration, run the migration command (step 2) first.
+  the changes add a migration, run the migration command (step 3) first.
 
 Changes to a project's environment variables only reach new deployments, so
 redeploy after editing them (**Deployments → ⋯ → Redeploy**). Front-end
@@ -208,7 +214,7 @@ Do the Vercel setup above first, then:
    | Secret | Value |
    | --- | --- |
    | `VERCEL_TOKEN` | A token from vercel.com/account/tokens, scoped to your team |
-   | `PRODUCTION_DATABASE_URL` | The Neon connection string; the workflow runs migrations with it |
+   | `PRODUCTION_DATABASE_URL` | The direct connection string (`DATABASE_URL_UNPOOLED`, or the one from neon.com); the workflow runs migrations with it |
 
 2. Add these repository variables (Settings → Secrets and variables → Actions →
    Variables):
@@ -296,14 +302,15 @@ API's `CORS_ORIGINS`. Each folder's `Dockerfile` shows the `--build-arg`s.
 
 | What you see | Why, and the fix |
 | --- | --- |
-| The API's `/app/health` says `unhealthy` | The API can't reach the database. Check `SQLALCHEMY_DATABASE_URI`, then the project's **Logs** in Vercel. |
-| Sign-up fails, and the API's logs say `relation "users" does not exist` | The tables don't exist yet: run step 2. |
-| The app's `/api/app/health` answers 404 `DEPLOYMENT_NOT_FOUND` | The rewrite in `app/vercel.json` points at a host that isn't the API's production address (step 3). Fix it, push, then deploy the app again from `main` (Create Deployment). |
+| "This page is unavailable" with `500 FUNCTION_INVOCATION_FAILED` on every API address, `/app/health` included | The API stopped while starting, before any request: a setting is missing. The project's **Logs** say which. `SECRET_KEY cannot be empty`: add it (step 1). `SQLALCHEMY_DATABASE_URI cannot be empty`: no database is connected (step 2). Then redeploy, because variables only reach new deployments. |
+| The API's `/app/health` says `unhealthy` | The API started but can't reach the database. Check the connection string, then the project's **Logs**. |
+| Sign-up fails, and the API's logs say `relation "users" does not exist` | The tables don't exist yet: run step 3. |
+| Every request takes seconds | The API runs far from the database. The `x-vercel-id` response header starts with the region the API ran in (`iad1::…`), and the database's region is in its host name (`….us-east-1.aws.neon.tech`). Make them match with `regions` in `api/vercel.json`. |
+| The app's `/api/app/health` answers 404 `DEPLOYMENT_NOT_FOUND` | The rewrite in `app/vercel.json` points at a host that isn't the API's production address (step 1). Fix it, push, then deploy the app again from `main` (Create Deployment). |
 | The app's `/api/app/health` shows a Vercel login page | The rewrite points at a deployment URL. Use the production address. |
 | Sign-in says "Network error", or you're signed out again on the next page load | The app was built to call the API's own address instead of `/api`: delete any `VITE_API_URL` variable from the app's Vercel project and redeploy it. |
 | The AI buttons say AI isn't set up | Add `GOOGLE_API_KEY` to the API project and redeploy it. |
 | The first request after a quiet spell is slow | Neon pauses an idle database and takes a moment to wake it. Later requests are quick. |
-| Every API request answers 500, and the API's logs say `SECRET_KEY cannot be empty` or `SQLALCHEMY_DATABASE_URI cannot be empty` | That variable isn't set for the Production environment in the API project. Add it and redeploy. |
 
 ## Notes
 

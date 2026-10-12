@@ -151,7 +151,7 @@ http://localhost:3001/join/demo-join-northwind. The link works once;
 
 ```bash
 cd api && uv run manage.py seed --reset   # wipe the database and reload the demo
-cd api && uv run pytest                   # 183 tests; Docker must be running; no API key or network needed
+cd api && uv run pytest                   # 187 tests; Docker must be running; no API key or network needed
 uv run --project api pre-commit run --all-files   # ruff, pyright, oxfmt, oxlint, tsc (files tracked by git)
 cd api && uv run manage.py create-user --first-name Ada --last-name Ops --email ada@example.com --admin
                                           # another staff account; prints a generated password
