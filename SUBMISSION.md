@@ -145,7 +145,7 @@ Staff can set a new password for a locked-out user as the support path.
   nitpicks a task that's already checkable, and a rewrite is a starting point
   the member edits. There's no scored evaluation set yet, so a prompt change
   is checked by rerunning those plans and reading the results.
-- **Front ends have no automated tests.** The API has 167 tests (96% coverage);
+- **Front ends have no automated tests.** The API has 183 tests (96% coverage);
   the UI was verified by driving every role's main flows in a real browser.
 - **Team history counts the team's current members.** Team membership isn't
   versioned, so someone who left a team drops out of its past weeks.
