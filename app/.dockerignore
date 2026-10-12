@@ -1,0 +1,11 @@
+# Keep the build context small: the image installs and builds from source.
+node_modules
+dist
+.output
+.nitro
+.tanstack
+.vercel
+src/routeTree.gen.ts
+.env*.local
+*.log
+.DS_Store

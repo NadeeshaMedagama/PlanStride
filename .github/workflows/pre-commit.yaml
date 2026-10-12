@@ -1,0 +1,50 @@
+name: Code Quality
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  pre-commit:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install
+        working-directory: api
+
+      - name: Install api dependencies
+        run: uv sync
+        working-directory: api
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: app/.nvmrc
+          cache: npm
+          cache-dependency-path: |
+            app/package-lock.json
+            site/package-lock.json
+            internal/package-lock.json
+
+      - name: Install app dependencies
+        run: npm ci
+        working-directory: app
+
+      - name: Install site dependencies
+        run: npm ci
+        working-directory: site
+
+      - name: Install internal dependencies
+        run: npm ci
+        working-directory: internal
+
+      - name: Run pre-commit
+        run: uv run --project api pre-commit run --all-files

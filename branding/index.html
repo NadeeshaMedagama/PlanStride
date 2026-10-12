@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PlanStride brand</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+  <style>
+    :root {
+      --ink: #0F1B16;
+      --paper: #F6F8F7;
+      --surface: #FFFFFF;
+      --muted: #56685F;
+      --border: #DDE5E1;
+      --dark-surface: #0B1310;
+      --dark-border: #1F2B25;
+      --font: "Geist", "Inter", system-ui, sans-serif;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: var(--font);
+      background: var(--paper);
+      color: var(--ink);
+      padding: 64px 24px 120px;
+      -webkit-font-smoothing: antialiased;
+    }
+    main { max-width: 960px; margin: 0 auto; }
+    header { display: flex; align-items: center; gap: 16px; margin-bottom: 48px; }
+    header img { height: 40px; }
+    h1 { font-size: 15px; font-weight: 600; }
+    .sub { font-size: 13px; color: var(--muted); margin-top: 2px; }
+    h2 {
+      font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.14em;
+      color: var(--muted); margin: 56px 0 16px; padding-bottom: 10px; border-bottom: 1px solid var(--border);
+    }
+    .note { font-size: 13px; color: var(--muted); line-height: 1.6; max-width: 64ch; margin-top: 14px; }
+    .row { display: flex; gap: 16px; flex-wrap: wrap; }
+    .card {
+      flex: 1 1 280px; min-height: 180px; border-radius: 12px; border: 1px solid var(--border);
+      background: var(--surface); display: flex; align-items: center; justify-content: center; gap: 28px;
+      padding: 40px 28px; flex-wrap: wrap;
+    }
+    .card.dark { background: var(--dark-surface); border-color: var(--dark-border); }
+    .card.tab-light { background: #DEE1E6; }
+    .card.tab-dark { background: #35363A; }
+    .label { font-size: 11px; color: var(--muted); text-align: center; margin-top: 8px; }
+    .dark .label { color: #9DB3A8; }
+    figure { display: flex; flex-direction: column; align-items: center; }
+    .pixel { image-rendering: pixelated; }
+    .swatches { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+    .swatch { border-radius: 12px; border: 1px solid var(--border); overflow: hidden; background: var(--surface); }
+    .swatch div { height: 72px; }
+    .swatch p { font-size: 12px; padding: 8px 10px 0; font-weight: 600; }
+    .swatch code { display: block; font-size: 11px; color: var(--muted); padding: 0 10px 10px; }
+    .og { width: 100%; border-radius: 12px; border: 1px solid var(--border); display: block; }
+    .tab {
+      display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 14px;
+      border-radius: 10px 10px 0 0; font-size: 12px; background: rgba(255,255,255,0.65); color: #1f1f1f;
+    }
+    .tab-dark .tab { background: #202124; color: #e8eaed; }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <img src="logo.svg" alt="PlanStride" />
+    <div>
+      <h1>Brand sheet</h1>
+      <p class="sub">Monday plans. Friday results.</p>
+    </div>
+  </header>
+
+  <h2>Lockup</h2>
+  <div class="row">
+    <div class="card"><img src="logo.svg" alt="PlanStride lockup on light" style="height:56px" /></div>
+    <div class="card dark"><img src="logo-dark.svg" alt="PlanStride lockup on dark" style="height:56px" /></div>
+  </div>
+
+  <h2>The mark: two strides</h2>
+  <div class="row">
+    <div class="card">
+      <figure><img src="logomark.svg" width="128" height="128" alt="" /><span class="label">128</span></figure>
+      <figure><img src="logomark.svg" width="64" height="64" alt="" /><span class="label">64</span></figure>
+      <figure><img src="logomark.svg" width="32" height="32" alt="" /><span class="label">32</span></figure>
+      <figure><img src="logomark.svg" width="16" height="16" alt="" /><span class="label">16</span></figure>
+    </div>
+    <div class="card dark">
+      <figure><img src="logomark.svg" width="128" height="128" alt="" /><span class="label">128</span></figure>
+      <figure><img src="logomark.svg" width="64" height="64" alt="" /><span class="label">64</span></figure>
+      <figure><img src="logomark.svg" width="32" height="32" alt="" /><span class="label">32</span></figure>
+      <figure><img src="logomark.svg" width="16" height="16" alt="" /><span class="label">16</span></figure>
+    </div>
+  </div>
+  <p class="note">
+    A check mark split where it bends: a short mint step for the sub-goals, a long
+    white stride for the one thing that ships. At 16px it reads as a plain check;
+    the tile carries its own colors, so it needs no dark variant.
+  </p>
+
+  <h2>Favicon in the wild</h2>
+  <div class="row">
+    <div class="card tab-light"><span class="tab"><img src="favicon.svg" width="16" height="16" alt="" />PlanStride · My week</span></div>
+    <div class="card tab-dark"><span class="tab"><img src="favicon.svg" width="16" height="16" alt="" />PlanStride · My week</span></div>
+  </div>
+  <p class="note">Shown at its real size on Chrome's light and dark tab strips.</p>
+
+  <h2>Color</h2>
+  <div class="swatches">
+    <div class="swatch"><div style="background:#059669"></div><p>Stride green</p><code>#059669</code></div>
+    <div class="swatch"><div style="background:#047857"></div><p>Deep green</p><code>#047857</code></div>
+    <div class="swatch"><div style="background:#34D399"></div><p>Bright green</p><code>#34D399</code></div>
+    <div class="swatch"><div style="background:#A7F3D0"></div><p>Mint</p><code>#A7F3D0</code></div>
+    <div class="swatch"><div style="background:#0F1B16"></div><p>Ink</p><code>#0F1B16</code></div>
+    <div class="swatch"><div style="background:#F6F8F7"></div><p>Paper</p><code>#F6F8F7</code></div>
+  </div>
+
+  <h2>Social card</h2>
+  <img class="og" src="../site/public/og-image.png" alt="PlanStride social card" />
+  <p class="note">1200×630, rendered from og-image.html. Used for og:image and twitter:image.</p>
+
+  <h2>README banner</h2>
+  <div class="row">
+    <img src="banner-light.svg" alt="Banner, light" style="width:100%;border-radius:12px" />
+    <img src="banner-dark.svg" alt="Banner, dark" style="width:100%;border-radius:12px" />
+  </div>
+</main>
+</body>
+</html>
