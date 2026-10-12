@@ -4,6 +4,7 @@
   "git": { "deploymentEnabled": false },
   "functions": {
     "app/main.py": {
+      "regions": ["iad1"],
       "maxDuration": 60,
       "excludeFiles": "{.env*,.venv/**,tests/**,**/__pycache__/**,.pytest_cache/**,.ruff_cache/**,.coverage,coverage.xml,htmlcov/**,requests.org,requirements-test.txt,Dockerfile,.dockerignore,Makefile,*.md}"
     }

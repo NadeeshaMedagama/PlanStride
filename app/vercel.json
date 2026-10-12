@@ -8,7 +8,7 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://planstride-api.vercel.app/:path*"
+      "destination": "https://plan-stride.vercel.app/:path*"
     },
     { "source": "/(.*)", "destination": "/_shell.html" }
   ],
