@@ -70,6 +70,9 @@ Every account's password is **`planstride-demo`**.
 Invite link into Northwind Labs, for trying sign-up through an invite:
 http://localhost:3001/join/demo-join-northwind
 
+The latest production deployment is available at
+[PlanStride Live url](https://plan-stride-yvk4.vercel.app/).
+
 **Tenancy, the way you said you'd review it:** sign in as Elena (Lumen Health),
 copy a Northwind URL from Marcus's session (a plan, a team, the members page),
 and open it. The API answers 404 for every one of them. `api/requests.org` has
