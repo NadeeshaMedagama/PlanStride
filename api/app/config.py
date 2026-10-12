@@ -2,11 +2,40 @@ from typing import Literal
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from sqlalchemy.engine import make_url
+from sqlalchemy.exc import ArgumentError
+
+
+def asyncpg_url(url: str) -> str:
+    """Return the database URL in the form asyncpg accepts.
+
+    Hosted Postgres such as Neon hands out libpq URLs:
+    `postgresql://…?sslmode=require&channel_binding=require`. The API connects
+    through asyncpg, which takes `ssl` rather than `sslmode` and has no
+    `channel_binding`, so such a URL is translated here instead of being edited
+    by hand on every deploy. A URL for another driver is returned unchanged.
+    """
+    parsed = make_url(url)
+    if parsed.drivername in ("postgres", "postgresql"):
+        parsed = parsed.set(drivername="postgresql+asyncpg")
+    if parsed.drivername != "postgresql+asyncpg":
+        return url
+    query = dict(parsed.query)
+    sslmode = query.pop("sslmode", None)
+    query.pop("channel_binding", None)
+    if sslmode is not None:
+        query.setdefault("ssl", sslmode)
+    return parsed.set(query=query).render_as_string(hide_password=False)
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=".env", env_ignore_empty=True, extra="ignore"
+        env_file=".env",
+        env_ignore_empty=True,
+        extra="ignore",
+        # Settings hold secrets (the database password, SECRET_KEY, the Gemini
+        # key), so a validation error must not echo the value into the logs.
+        hide_input_in_errors=True,
     )
 
     PROJECT_NAME: str = "PlanStride"
@@ -18,6 +47,10 @@ class Settings(BaseSettings):
     SECURE_COOKIE: bool = True
 
     CORS_ORIGINS: str = "http://localhost:3000"
+
+    # Set to 1 by Vercel on its deployments, where the API runs as a serverless
+    # function (see `pool_options` in app/database.py).
+    VERCEL: bool = False
 
     # JWT Token settings
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24  # 24 hours
@@ -55,7 +88,14 @@ class Settings(BaseSettings):
             raise ValueError(
                 "SQLALCHEMY_DATABASE_URI cannot be empty. Set SQLALCHEMY_DATABASE_URI environment variable."
             )
-        return v
+        try:
+            return asyncpg_url(v.strip())
+        except ArgumentError:
+            # SQLAlchemy's own message doesn't say which setting is wrong.
+            raise ValueError(
+                "SQLALCHEMY_DATABASE_URI isn't a database URL, such as "
+                "postgresql://user:password@host/database."
+            ) from None
 
     @property
     def is_production(self) -> bool:

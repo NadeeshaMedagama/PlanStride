@@ -1,4 +1,4 @@
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import Depends
 from sqlalchemy import event
@@ -9,13 +9,30 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapper
+from sqlalchemy.pool import NullPool
 
 from app.config import settings
+
+
+def pool_options(serverless: bool) -> dict[str, Any]:
+    """Connection pooling for where the API runs.
+
+    On Vercel the API is a serverless function: instances are frozen between
+    requests and multiply under load. Pooled connections would sit idle on
+    frozen instances, count against the database's connection limit, and be
+    cut whenever Neon scales to zero, so there every connection is closed as
+    soon as the session using it is done. Everywhere else connections are pooled
+    and checked before each use.
+    """
+    if serverless:
+        return {"poolclass": NullPool}
+    return {"pool_pre_ping": True}
+
 
 async_engine = create_async_engine(
     settings.SQLALCHEMY_DATABASE_URI,
     echo=settings.SQLALCHEMY_ECHO,
-    pool_pre_ping=True,
+    **pool_options(serverless=settings.VERCEL),
 )
 
 AsyncSessionLocal = async_sessionmaker(
