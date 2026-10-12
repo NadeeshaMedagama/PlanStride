@@ -10,3 +10,4 @@
 
 - oxlint's `react(set-state-in-effect)` rejects resetting dialog state in an effect. Mount the form inside the open dialog instead, so its state starts from props.
 - Grids that contain `truncate` text need `grid-cols-1` on mobile, or they overflow the viewport.
+- `FormControl` gives its single child the field's `id`, `aria-invalid` and `aria-describedby`, so it must wrap the `<Input>` itself. Put icons and buttons in a wrapper outside it; around a `<div>`, the label isn't tied to the input and errors aren't announced (both login pages had this).
